@@ -14,9 +14,6 @@ import torch, numpy as np, glob, math, torch.utils.data, scipy.ndimage, multipro
 dimension=3
 full_scale=4096 #Input field size
 
-# VALID_CLAS_IDS have been mapped to the range {0,1,...,19}
-VALID_CLASS_IDS = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 24, 28, 33, 34, 36, 39])
-
 train,val=[],[]
 for x in torch.utils.data.DataLoader(
       glob.glob('train/*.pth'),
@@ -28,6 +25,9 @@ for x in torch.utils.data.DataLoader(
     val.append(x)
 print('Training examples:', len(train))
 print('Validation examples:', len(val))
+
+if len(train) == 0 or len(val) == 0:
+    raise ValueError('Please prepare_data.py to generate training files')
 
 #Elastic distortion
 blur0=np.ones((3,1,1)).astype('float32')/3
@@ -53,7 +53,7 @@ def trainMerge(tbl):
     feats=[]
     labels=[]
     for idx,i in enumerate(tbl):
-        a,b,c=train[i]
+        a,b,c,d=train[i]
         m=np.eye(3)+np.random.randn(3,3)*0.1
         m[0][0]*=np.random.randint(0,2)*2-1
         m*=scale
@@ -78,7 +78,7 @@ def trainMerge(tbl):
     locs=torch.cat(locs,0)
     feats=torch.cat(feats,0)
     labels=torch.cat(labels,0)
-    return {'x': [locs,feats], 'y': labels.long(), 'id': tbl}
+    return {'x': [locs,feats], 'y': labels.long(), 'id': tbl, 'elastic_locs': a}
 train_data_loader = torch.utils.data.DataLoader(
     list(range(len(train))),batch_size=batch_size, collate_fn=trainMerge, num_workers=20, shuffle=True)
 
@@ -96,7 +96,7 @@ def valMerge(tbl):
     labels=[]
     point_ids=[]
     for idx,i in enumerate(tbl):
-        a,b,c=val[i]
+        a,b,c,d=val[i]
         m=np.eye(3)
         m[0][0]*=np.random.randint(0,2)*2-1
         m*=scale
@@ -117,10 +117,20 @@ def valMerge(tbl):
         feats.append(torch.from_numpy(b))
         labels.append(torch.from_numpy(c))
         point_ids.append(torch.from_numpy(np.nonzero(idxs)[0]+valOffsets[i]))
+
+        label_id_to_color = {}
+
+        for label_id, color in zip(c, d):
+            if label_id not in label_id_to_color:
+                # label_id_to_color[int(label_id)] = color
+                label_id_to_color[int(label_id)] = np.interp(color, (0, 255), (0, 1))
+        
+        # print(label_id_to_color)
+
     locs=torch.cat(locs,0)
     feats=torch.cat(feats,0)
     labels=torch.cat(labels,0)
     point_ids=torch.cat(point_ids,0)
-    return {'x': [locs,feats], 'y': labels.long(), 'id': tbl, 'point_ids': point_ids}
+    return {'x': [locs,feats], 'y': labels.long(), 'id': tbl, 'point_ids': point_ids, 'label_id_to_color': label_id_to_color}
 val_data_loader = torch.utils.data.DataLoader(
     list(range(len(val))),batch_size=batch_size, collate_fn=valMerge, num_workers=20,shuffle=True)
